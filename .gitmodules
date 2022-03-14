@@ -1,3 +1,3 @@
 [submodule "sample-jsons"]
 	path = sample-jsons
-	url = git@github.ibm.com:Seif-Ghazi/sample-jsons.git
+	url = https://github.com/seifghazi/sample-jsons.git
