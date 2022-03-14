@@ -1,6 +1,7 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const git = require("nodegit");
+const merge = require('deepmerge');
 const { exec } = require("child_process");
 const app = express();
 const port = 3000;
@@ -34,37 +35,44 @@ app.post("/pullRequest", (req, res) => {
         });
 
         // Checkout commit that contains the recently merged changes
-        // get JSON file
         const mergeCommitRef = req.body.pull_request.base.ref;
-        let commit = await repo.getBranchCommit(mergeCommitRef);
-        // console.log(commit.sha());
-        let entry = await commit.getEntry("topics.json");
-        let json = await entry.getBlob();
-        console.log(json.toString());
-        json = JSON.parse(json.toString());
+        const commit = await repo.getBranchCommit(mergeCommitRef);
+        let recentlyMergedJSON = await extractJsonFromCommit(
+          commit,
+          "topics.json"
+        );
+        console.log(recentlyMergedJSON);
 
         // check if 'future' release branch exist
         let branchNames = await repo.getReferenceNames(git.Reference.TYPE.ALL);
-
-        branchNames = Array.from(new Set(
-          branchNames
-            .filter((branchName) => branchName.includes("remotes"))
-            .map((branchName) => branchName.split("/")[3])
-        ));
-
-        console.log(branchNames);
-
+        
+        branchNames = Array.from(
+            new Set(
+                branchNames
+                .filter((branchName) => branchName.includes("remotes"))
+                .map((branchName) => branchName.split("/")[3])
+                )
+                );
+                
+                
         currentBranchIndex = branchNames.indexOf(mergeCommitRef);
-        console.log('current branch', mergeCommitRef);
-        console.log(currentBranchIndex);
         if (currentBranchIndex !== branchNames.length - 1) {
-            // there exists a future release branch - checkout that branch, get union of jsons, create PR
-            let futureBranch = await repo.getBranchCommit(branchNames[currentBranchIndex + 1]);
-            let entry = await futureBranch.getEntry("topics.json");
-            let blob = await entry.getBlob();
-            console.log("New branch JSON", blob.toString());
-        }
+          // there exists a future release branch - checkout that branch, get union of jsons, create PR
+          let futureBranchCommit = await repo.getBranchCommit(
+            branchNames[currentBranchIndex + 1]
+          );
+          let newJSON = await extractJsonFromCommit(
+            futureBranchCommit,
+            "topics.json"
+          );
 
+          console.log("future json", newJSON);
+
+          // perform union 
+          let unionJSON = merge(recentlyMergedJSON, newJSON);
+
+          console.log('union json', unionJSON.topics["INGESTED.Example.Customer"]);
+        }
       })
       .catch((err) => {
         console.log(err);
@@ -77,13 +85,9 @@ app.listen(port, () => {
   console.log(`Example app listening on port ${port}!`);
 });
 
-var options = {
-  callbacks: {
-    credentials: function (url, userName) {
-      return git.Cred.sshKeyFromAgent(userName);
-    },
-    certificateCheck: function () {
-      return 0;
-    },
-  },
+// extractJsonFromCommit is a helper fn that given a commit and a json file name will fetch, parse, and return that json
+const extractJsonFromCommit = async (commit, fileName) => {
+  let entry = await commit.getEntry(fileName);
+  let blob = await entry.getBlob();
+  return JSON.parse(blob.toString());
 };
